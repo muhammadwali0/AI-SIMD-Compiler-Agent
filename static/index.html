@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIMD-AGENT | Compiler Terminal</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            background-color: #0a0a0a;
+            color: #00ff41;
+            font-family: 'Monaco', 'Fira Code', 'Courier New', Courier, monospace;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        /* CRT Overlay Effects */
+        .crt::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 10;
+            background-size: 100% 3px, 3px 100%;
+            pointer-events: none;
+        }
+
+        .crt::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: rgba(18, 16, 16, 0.1);
+            opacity: 0;
+            z-index: 10;
+            pointer-events: none;
+            animation: flicker 0.15s infinite;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 0.1; }
+            50% { opacity: 0.05; }
+            100% { opacity: 0.1; }
+        }
+
+        #terminal {
+            padding: 30px;
+            height: calc(100% - 60px);
+            overflow-y: auto;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 0 5px rgba(0, 255, 65, 0.7);
+        }
+
+        #terminal::-webkit-scrollbar {
+            width: 8px;
+        }
+        #terminal::-webkit-scrollbar-thumb {
+            background: #00ff41;
+            box-shadow: 0 0 5px #00ff41;
+        }
+
+        pre {
+            margin: 0;
+            font-family: inherit;
+            line-height: 1.2;
+        }
+
+        .header {
+            margin-bottom: 20px;
+            color: #00ff41;
+            opacity: 0.8;
+        }
+
+        .output-line {
+            margin-bottom: 8px;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+
+        .prompt-line {
+            display: flex;
+            align-items: center;
+        }
+
+        #command-input {
+            background: transparent;
+            border: none;
+            color: #00ff41;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            flex-grow: 1;
+            padding: 0 5px;
+            text-shadow: 0 0 5px rgba(0, 255, 65, 0.7);
+        }
+
+        .cursor {
+            width: 10px;
+            height: 1.2em;
+            background-color: #00ff41;
+            display: inline-block;
+            animation: pulse 1s infinite;
+            vertical-align: middle;
+            box-shadow: 0 0 8px #00ff41;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+
+        .simd-code {
+            color: #afffdf;
+            border-left: 2px solid #00ff41;
+            padding-left: 15px;
+            margin: 10px 0;
+        }
+
+        .stats {
+            color: #fffb00;
+            font-weight: bold;
+        }
+
+        .scanline {
+            width: 100%;
+            height: 2px;
+            background: rgba(0, 255, 65, 0.1);
+            position: absolute;
+            top: 0;
+            z-index: 11;
+            animation: scanline 8s linear infinite;
+        }
+
+        @keyframes scanline {
+            from { top: 0; }
+            to { top: 100%; }
+        }
+    </style>
+</head>
+<body class="crt">
+    <div class="scanline"></div>
+    <div id="terminal">
+        <div class="header">
+<pre>
+  ____ ___ __  __ ____        _    ____ _____ _   _ _____ 
+ / ___|_ _|  \/  |  _ \      / \  / ___| ____| \ | |_   _|
+ \___ \| | | |\/| | | | |    / _ \| |  _|  _| |  \| | | |  
+  ___) | | | |  | | |_| |   / ___ \ |_| | |___| |\  | | |  
+ |____/___|_|  |_|____/   /_/   \_\____|_____|_| \_| |_|  
+                                                          
+ [ SYSTEM: SIMD V0.1-BETA ]
+ [ STATUS: READY ]
+</pre>
+        </div>
+        <div id="history"></div>
+        <div class="prompt-line">
+            <span id="prompt-label">user@aiseekho:~/compiler$ </span>
+            <input type="text" id="command-input" autofocus spellcheck="false">
+        </div>
+    </div>
+
+    <script>
+        const history = document.getElementById('history');
+        const input = document.getElementById('command-input');
+        const terminal = document.getElementById('terminal');
+
+        // Focus input on click anywhere
+        document.addEventListener('click', () => input.focus());
+
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                const command = input.value.trim();
+                if (!command) return;
+
+                // Echo command
+                appendLine(`user@aiseekho:~/compiler$ ${command}`, 'echo');
+                input.value = '';
+                input.disabled = true;
+
+                try {
+                    const response = await fetch('/optimize', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt: command })
+                    });
+
+                    if (!response.ok) throw new Error('System error: Response not OK');
+                    
+                    const data = await response.json();
+                    
+                    await typeWriter(`[OPTIMIZING] Analyizing loops for SIMD candidates...`, 30);
+                    await typeWriter(`[COMPILING] Mapping to AVX-512/NEON instructions...`, 30);
+                    
+                    if (data.optimized_code) {
+                        await appendCodeBlock(data.optimized_code);
+                    }
+                    
+                    if (data.speedup) {
+                        await typeWriter(`[SUCCESS] Optimization complete. Delta: ${data.speedup}`, 20, 'stats');
+                    } else if (data.message) {
+                        await typeWriter(data.message, 20);
+                    }
+
+                } catch (err) {
+                    await typeWriter(`CRITICAL ERROR: ${err.message}`, 10, 'error');
+                } finally {
+                    input.disabled = false;
+                    input.focus();
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+            }
+        });
+
+        function appendLine(text, className = '') {
+            const line = document.createElement('div');
+            line.className = `output-line ${className}`;
+            line.textContent = text;
+            history.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+            return line;
+        }
+
+        async function typeWriter(text, speed, className = '') {
+            const line = document.createElement('div');
+            line.className = `output-line ${className}`;
+            history.appendChild(line);
+            
+            for (let i = 0; i < text.length; i++) {
+                line.textContent += text.charAt(i);
+                terminal.scrollTop = terminal.scrollHeight;
+                await new Promise(r => setTimeout(r, speed));
+            }
+        }
+
+        async function appendCodeBlock(code) {
+            const container = document.createElement('div');
+            container.className = 'simd-code';
+            history.appendChild(container);
+            
+            const lines = code.split('\n');
+            for (const line of lines) {
+                const lineDiv = document.createElement('div');
+                container.appendChild(lineDiv);
+                for (let i = 0; i < line.length; i++) {
+                    lineDiv.textContent += line.charAt(i);
+                    terminal.scrollTop = terminal.scrollHeight;
+                    await new Promise(r => setTimeout(r, 5));
+                }
+            }
+        }
+    </script>
+</body>
+</html>
