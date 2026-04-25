@@ -7,7 +7,7 @@ Built for systems engineers who are tired of reading the Intel Intrinsics Guide.
 
 ---
 
-## Demo
+## Demo on YouTube
 
 [![SIMD-AGENT Demo](https://img.youtube.com/vi/qNxoIv_bGLw/maxresdefault.jpg)](https://www.youtube.com/watch?v=qNxoIv_bGLw)
 
