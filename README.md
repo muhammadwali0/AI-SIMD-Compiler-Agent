@@ -1,7 +1,7 @@
 # AI SIMD Compiler Agent
 ### Natural Language → Validated AVX2 Intrinsics
 
-AI-powered agent that translates natural language descriptions of mathematical operations into validated, benchmarked AVX2 intrinsics. Compiles and stress-tests generated C++ against a true scalar reference, with an agentic retry loop on compiler errors and semantic mismatches.
+An AI-powered agent that translates natural language descriptions of mathematical operations into validated, benchmarked AVX2 intrinsics. Compiles and stress-tests generated C++ against a true scalar reference, with an agentic retry loop on compiler errors and semantic mismatches.
 
 Built for systems engineers who are tired of reading the Intel Intrinsics Guide.
 
@@ -28,32 +28,27 @@ Natural Language Input
         │
         ▼
 ┌─────────────────────┐
-│   Intent Parser     │  Gemini API — NL → structured operation schema
+│   Code Synthesizer  │  Gemini 2.5 Flash — NL → AVX2 intrinsics + scalar reference
 └─────────────────────┘
         │
         ▼
 ┌─────────────────────┐
-│   Code Synthesizer  │  Gemini API — schema → AVX2 intrinsics + scalar reference
-└─────────────────────┘
-        │
-        ▼
-┌─────────────────────┐
-│  Validation Engine  │  clang + 64K float test vectors
+│  Validation Engine  │  g++ + 64K float test vectors
 │  Compile → Run →    │  Diffs SIMD output against scalar within epsilon
 │  Diff → Certify     │
 └─────────────────────┘
         │
         ▼
 ┌─────────────────────┐
-│  Agentic Retry Loop │  Compiler errors and semantic mismatches fed back
-│  (up to 3 attempts) │  to Gemini for corrected generation
+│  Agentic Retry Loop │  Compiler errors fed back to Gemini 2.0 Flash
+│  (up to 3 attempts) │  for corrected generation
 └─────────────────────┘
         │
         ▼
   Intrinsic code + scalar fallback + verified speedup
 ```
 
-Two Gemini calls per request: one for intent extraction into a structured JSON schema, one for code synthesis. The second call injects relevant intrinsic semantics as context to reduce hallucination on non-trivial operations.
+A single Gemini 2.5 Flash call handles both intent parsing and code synthesis in one shot, returning a structured JSON object with `scalar_func` and `simd_func`. If compilation fails, up to 2 retry calls are made using Gemini 2.0 Flash, with the compiler error injected as context.
 
 ---
 
@@ -65,17 +60,17 @@ Two Gemini calls per request: one for intent extraction into a structured JSON s
 | FMA: a[i] = a[i] * b[i] + c[i] | `_mm256_fmadd_ps` | 3.4x |
 | Sum float array skipping NaN values | `_mm256_cmp_ps` + `_mm256_blendv_ps` + `_mm256_add_ps` | 5.7x |
 
-Scalar baseline compiled with `-fno-tree-vectorize` to prevent auto-vectorization from inflating speedup numbers. Benchmarks run over 100 iterations on 64K float arrays (fits in L3 cache) on AVX2-capable hardware.
+Scalar baseline compiled with `#pragma GCC optimize("no-tree-vectorize")` to prevent auto-vectorization from inflating speedup numbers. Benchmarks run over 100 iterations on 64K float arrays (fits in L3 cache) on AVX2-capable hardware.
 
 ---
 
 ## Stack
 
-- **Gemini API** — intent parsing and code synthesis
+- **Gemini API** — code synthesis (2.5 Flash) and retry correction (2.0 Flash)
 - **FastAPI** — REST API orchestration
-- **clang/g++** — sandboxed compilation and execution
+- **g++** — sandboxed compilation and execution (`-O3 -mavx2 -mfma`)
 - **Docker** — containerized toolchain
-- **Google Cloud Run** — deployment
+- **Google Cloud Run** — deployment target
 
 ---
 
@@ -89,11 +84,11 @@ Scalar baseline compiled with `-fno-tree-vectorize` to prevent auto-vectorizatio
 ### Local
 
 ```bash
-git clone https://github.com/yourusername/simd-agent.git
-cd simd-agent
+git clone https://github.com/muhammadwali0/AI-SIMD-Compiler-Agent.git
+cd AI-SIMD-Compiler-Agent
 pip install -r requirements.txt
 cp .env.example .env
-# add your GENAI_API_KEY to .env
+# Add your GENAI_API_KEY to .env
 python app.py
 ```
 
@@ -105,6 +100,8 @@ Server runs at `http://localhost:8000`.
 docker build -t simd-agent .
 docker run -p 8080:8080 -e GENAI_API_KEY=your_key_here simd-agent
 ```
+
+Server runs at `http://localhost:8080`.
 
 ---
 
@@ -133,6 +130,8 @@ Response:
 }
 ```
 
+On failure (e.g. compilation error after all retries), `message` will contain the error and all other fields will be null.
+
 ---
 
 ## Deployment
@@ -158,7 +157,8 @@ gcloud run deploy simd-agent \
 
 - Assumes `n` is a multiple of 8 (AVX2 processes 8 floats per register)
 - Horizontal reduction operations (cross-lane) are harder for the model and may consume retries
-- AVX-512 generation is possible but not yet the default target ISA
+- AVX-512 generation is possible but not the default target ISA
+- Only supports 3-argument float operations (`float* a, float* b, float* c, int n`) — the benchmark harness is not parameterized for other signatures
 
 ---
 
